@@ -11,7 +11,7 @@ from pprint import pprint
 def process_args():
     """ Process CLI arguments """
 
-    arguments = ["rollback", "migrate"]
+    arguments = ["rollback", "migrate", "backup"]
 
     if len(sys.argv) != 2:
         print_help()
@@ -29,11 +29,13 @@ def print_help():
 
     print("""You must specify one of these arguments:
 
-    rollback
+    backup
     migrate
+    rollback
 
-    Example #1: python tgw_migrate.py rollback
+    Example #1: python tgw_migrate.py backup
     Example #2: python tgw_migrate.py migrate
+    Example #3: python tgw_migrate.py rollback
 
     """)
     sys.exit()
@@ -179,7 +181,8 @@ def tgw_migrate():
 
 
 def backup_routes():
-    
+    """ Backs up route tables that have the migrate tag """
+
     try:
         os.mkdir("backups")
     except OSError:
@@ -217,9 +220,15 @@ def backup_routes():
 
     json.dump(backup_list, backup_file)
     backup_file.close
+    
+    print("\nBackup completed.\n")
+
+    return None
 
 if __name__ == '__main__':
     arg = process_args()
+    if arg == "backup":
+        backup_routes()
     if arg == "migrate":
         backup_routes()
         tgw_migrate()
