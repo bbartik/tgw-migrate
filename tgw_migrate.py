@@ -102,13 +102,6 @@ def rollback():
     return None
 
 
-def migrate():
-    """ This is a test function for arg selection """
-
-    print("You selected migrate")
-    return None
-
-
 def tgw_migrate():
     """ This function migrates the VPC route table next-hops to the TGW """
 
@@ -159,15 +152,6 @@ def tgw_migrate():
                     # add route to list of routes to be modified
                     mod_routes.append(new_route)
 
-    #json.dump(backup_list, backup_file)
-    #backup_file.close
-
-    '''
-    cli command for reference:
-    aws ec2 replace-route --route-table-id rtb-22574640 
-    --destination-cidr-block 10.0.0.0/16 --gateway-id vgw-9a4cacf3
-    '''
-
     # for each route in the list, replace it and use TGW as next-hop
     for route in mod_routes:
         session = boto3.Session()
@@ -177,8 +161,8 @@ def tgw_migrate():
             RouteTableId = route['table'],
             TransitGatewayId = tgw_id
             )
-        #pprint(response)
 
+    return None
 
 def backup_routes():
     """ Backs up route tables that have the migrate tag """
@@ -219,11 +203,11 @@ def backup_routes():
             backup_list.append(backup_dict)
 
     json.dump(backup_list, backup_file)
-    backup_file.close
-    
+    backup_file.close    
     print("\nBackup completed.\n")
 
     return None
+
 
 if __name__ == '__main__':
     arg = process_args()
