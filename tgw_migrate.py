@@ -103,7 +103,12 @@ def add_migrate_tag():
     vpc_response = src_client.describe_vpcs()
 
     for vpc in vpc_response['Vpcs']:
-        vpc_name = [x['Value'] for x in vpc['Tags'] if 'Name' in x['Key']][0]
+        try:
+            vpc_name = [x['Value'] for x in vpc['Tags'] if 'Name' in x['Key']][0]
+        except IndexError:
+            print("We hit a VPC with no name...")
+            print("Please configure name tag on all VPCs")
+            sys.exit()
         vpc_id = str(vpc['VpcId'])
         msg = "Add Migrate tags to Route Tables for {0:s}? (y/n)[n] ".format(vpc_name)
         answer = input(msg)
@@ -141,6 +146,7 @@ def check_tag(**kwargs):
 
     # set filter for query
     filters = [{'Name':'tag:migrate', 'Values':['true']}]
+    tag = {'Key':'migrate', 'Value':'true'}
 
     # get all the route tables with migrate tag set to true
     session = boto3.Session()
@@ -148,20 +154,38 @@ def check_tag(**kwargs):
     response = src_client.describe_route_tables(Filters=filters)
     route_tables = response['RouteTables']
 
-    # print tables and also assemble route lists for later printing
+    # get full tables to help populate exclude list
+    full_response = src_client.describe_route_tables()
+    all_tables = full_response['RouteTables']
+
+    # initialize empty lists for populating them later
     route_list = []
     table_name_list = []
+    exclude_table_list = []
 
+    # get tagged route tables
     for table in route_tables:
         table_name = [x['Value'] for x in table['Tags'] if 'Name' in x['Key']][0]
         table_name_list.append(table_name)
         for route in table['Routes']:
             route_list.append(route)
 
+    # get tables that are not tagged
+    for table in all_tables:
+        if tag not in table['Tags']:
+            try:
+                table_name = [x['Value'] for x in table['Tags'] if 'Name' in x['Key']][0]
+            except:
+                table_name = "No Name"
+            exclude_table_list.append(table_name)
+                 
     # return object based on query value
     if kwargs['query'] == "check":
         print("\nThe following tables are tagged to be migrated:\n")
         for t in table_name_list:
+            print(t)
+        print("\nThe following tables are NOT tagged to be migrated:\n")
+        for t in exclude_table_list:
             print(t)
         print('\n')
     elif kwargs['query'] == "migrate":
