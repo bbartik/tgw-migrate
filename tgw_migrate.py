@@ -11,16 +11,12 @@ from pprint import pprint
 def process_args():
     """ Process CLI arguments """
 
-    arguments = ["rollback", "migrate", "backup"]
-
+    arguments = ["rollback", "migrate", "backup", "tag", "check"]
     if len(sys.argv) != 2:
         print_help()
-
     if sys.argv[1] not in arguments:
         print_help()
-
     arg = [x for x in arguments if x in sys.argv[1]][0]
-
     return arg
 
 
@@ -30,13 +26,13 @@ def print_help():
     print("""You must specify one of these arguments:
 
     backup
+    tag
     migrate
     rollback
+    check
 
     Example #1: python tgw_migrate.py backup
-    Example #2: python tgw_migrate.py migrate
-    Example #3: python tgw_migrate.py rollback
-
+    Example #2: python tgw_migrate.py tag
     """)
     sys.exit()
 
@@ -81,7 +77,6 @@ def rollback():
             rt_entry['RouteTableId'] = routes['table']
             for gw_type in gw_types:
                 if gw_type in route.keys():
-                    print(route.values())
                     if "local" in route.values():
                         print("skipping local route")
                         break
@@ -90,9 +85,7 @@ def rollback():
                         print(next_hop)
                         rt_entry.update(next_hop)
                         route_list.append(rt_entry)
-
-    print(route_list)
-                        
+                      
     for entry in route_list:
         print(entry)
         session = boto3.Session()
@@ -101,6 +94,87 @@ def rollback():
 
     return None
 
+
+def add_migrate_tag():
+    """ Adds "migrate" tag to the route tables """
+
+    session = boto3.Session()
+    src_client = session.client('ec2')
+    vpc_response = src_client.describe_vpcs()
+
+    for vpc in vpc_response['Vpcs']:
+        vpc_name = [x['Value'] for x in vpc['Tags'] if 'Name' in x['Key']][0]
+        vpc_id = str(vpc['VpcId'])
+        msg = "Add Migrate tags to Route Tables for {0:s}? (y/n)[n] ".format(vpc_name)
+        answer = input(msg)
+        if answer == 'y':
+            print("\nOk...")
+    
+            # only retrieve route tables from specific vpc
+            filter = {'Name':'vpc-id','Values': [vpc_id]},
+            rt_response = src_client.describe_route_tables(Filters=filter)
+
+            # add tags to each route table
+            for route_table in rt_response['RouteTables']:
+    
+                rt_id = route_table['RouteTableId']
+                src_client.create_tags(Resources=[rt_id], Tags=[{'Key': 'migrate', 'Value': 'true'}])
+
+                # use list comprehension to get table name
+                table_name = [x['Value'] for x in route_table['Tags'] if 'Name' in x['Key']]
+                print("Tag added to Route Table {0:s}.".format(table_name[0]))
+
+    print('\n*** Route table tagging completed ***\n')
+
+
+def check_tag(**kwargs):
+    """ 
+    This function gets the route tables with the migrate tag and 
+    returns prints it if called with "check" option or returns route
+    list to the migrate function
+    """
+      
+    # set the tgw id from env or prompt user for it
+    tgw_id = os.environ.get('TGW_ID')
+    if not tgw_id:
+        tgw_id = input("Please enter tgw id: ")
+
+    # set filter for query
+    filters = [{'Name':'tag:migrate', 'Values':['true']}]
+
+    # get all the route tables with migrate tag set to true
+    session = boto3.Session()
+    src_client = session.client('ec2')
+    response = src_client.describe_route_tables(Filters=filters)
+    route_tables = response['RouteTables']
+
+    # print tables and also assemble route lists for later printing
+    route_list = []
+    table_name_list = []
+
+    for table in route_tables:
+        table_name = [x['Value'] for x in table['Tags'] if 'Name' in x['Key']][0]
+        table_name_list.append(table_name)
+        for route in table['Routes']:
+            route_list.append(route)
+
+    # return object based on query value
+    if kwargs['query'] == "check":
+        print("\nThe following tables are tagged to be migrated:\n")
+        for t in table_name_list:
+            print(t)
+        print('\n')
+    elif kwargs['query'] == "migrate":
+        return table_list
+    elif kwargs['query'] == "routes":
+        for table in route_tables:
+            pprint([x['Value'] for x in table['Tags'] if 'Name' in x['Key']][0])
+            print("--------------------------------------")
+            pprint(table['Routes'])
+            print("--------------------------------------")
+            #pprint(table)
+
+    return None
 
 def tgw_migrate():
     """ This function migrates the VPC route table next-hops to the TGW """
@@ -122,23 +196,10 @@ def tgw_migrate():
     # initialize updated route list
     mod_routes = []
 
-    # backup_routes()
-    # initlize backup file and list
-    # backup_file = open('route_backup.json', 'w')
-    # backup_list = []
-
     for table in route_tables:
 
         # we only want route tables with the matching tag
         if tag in table['Tags']:
-
-            # backup routes first
-            '''
-            backup_dict = {}
-            backup_dict['table'] = table['RouteTableId']
-            backup_dict['routes'] = table['Routes']
-            backup_list.append(backup_dict)
-            '''
             for route in table['Routes']:
 
                 # only grab routes that are not local
@@ -162,7 +223,11 @@ def tgw_migrate():
             TransitGatewayId = tgw_id
             )
 
+    print("Migration completed. The following routes have been updated: \n")
+    check_tag(query="routes")
+
     return None
+
 
 def backup_routes():
     """ Backs up route tables that have the migrate tag """
@@ -213,8 +278,12 @@ if __name__ == '__main__':
     arg = process_args()
     if arg == "backup":
         backup_routes()
-    if arg == "migrate":
+    elif arg == "migrate":
         backup_routes()
         tgw_migrate()
     elif arg == "rollback":
         rollback()
+    elif arg == "tag":
+        add_migrate_tag()
+    elif arg == "check":
+        check_tag(query="check")
